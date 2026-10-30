@@ -1,4 +1,4 @@
-import type { UiElement, UiNode, UiSnapshot } from '../android/ui.js';
+import type { UiElement, UiNode, UiSnapshot } from '../phone/ui.js';
 
 /** A Maestro selector: a text regex, or an object combining id, text, index or point. */
 export type Selector = string | SelectorObject;
@@ -79,9 +79,12 @@ export function percentPoint(x: number, y: number, width: number, height: number
  */
 export function selectorFor(el: UiElement, snap: UiSnapshot): Selector {
   const isOurs = (n: UiNode) => n === el.node || n === el.labelNode;
+  const [bx1, by1, bx2, by2] = el.bounds;
+  const inside = (n: UiNode) => n.bounds[0] >= bx1 - 1 && n.bounds[1] >= by1 - 1 && n.bounds[2] <= bx2 + 1 && n.bounds[3] <= by2 + 1;
+  // Good enough when every match is this element or a part of it: tapping any of them taps it.
   const unique = (s: Selector) => {
     const m = matchSelector(s, snap.nodes);
-    return m.length === 1 && isOurs(m[0]);
+    return m.length > 0 && m.every(inside);
   };
 
   const id = el.node.resourceId ? el.node.resourceId.split('/').pop() : undefined;

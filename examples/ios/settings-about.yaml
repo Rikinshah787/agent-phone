@@ -1,0 +1,10 @@
+# Open About in iPhone Settings
+# Recorded by agent-phone on 2026-10-30.
+# Replay: npx agent-phone test <this file>    (format: Maestro flow, https://maestro.dev)
+appId: com.apple.Preferences
+---
+- launchApp:
+    appId: com.apple.Preferences
+- tapOn: General
+- tapOn: About
+- assertVisible: About
