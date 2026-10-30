@@ -1,0 +1,93 @@
+name: iOS probe
+
+on:
+  push:
+    branches: [ios]
+    paths: [.github/workflows/ios-probe.yml]
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Tool versions
+        run: |
+          sw_vers; xcodebuild -version; xcrun simctl help | head -3; node -v; brew --version | head -1
+          mkdir -p probe
+
+      - name: Install AXe
+        run: |
+          time brew install cameroncooke/axe/axe
+          axe --version || axe --help | head -20
+
+      - name: Simulator inventory
+        run: |
+          xcrun simctl list runtimes -j > probe/runtimes.json
+          xcrun simctl list devicetypes -j > probe/devicetypes.json
+          xcrun simctl list devices available -j > probe/devices.json
+          xcrun simctl list runtimes
+          xcrun simctl list devices available | head -40
+
+      - name: Boot an iPhone
+        run: |
+          UDID=$(python3 -c "
+          import json; d=json.load(open('probe/devices.json'))['devices']
+          rt=sorted([k for k in d if 'iOS' in k])[-1]
+          phones=[x for x in d[rt] if x['name'].startswith('iPhone') and x['isAvailable']]
+          print(phones[0]['udid'])")
+          echo "UDID=$UDID" >> $GITHUB_ENV
+          xcrun simctl list devices | grep "$UDID"
+          time xcrun simctl boot "$UDID"
+          time xcrun simctl bootstatus "$UDID" -b
+          sleep 5
+
+      - name: Probe screen reading and screenshots
+        run: |
+          set -x
+          time xcrun simctl launch "$UDID" com.apple.Preferences
+          sleep 4
+          time axe describe-ui --udid "$UDID" > probe/settings-ui.json
+          head -c 3000 probe/settings-ui.json; echo
+          time axe screenshot --output probe/settings-axe.png --udid "$UDID"
+          time xcrun simctl io "$UDID" screenshot --type=png probe/settings-simctl.png
+          time xcrun simctl io "$UDID" screenshot --type=jpeg probe/settings-simctl.jpg
+          sips -g pixelWidth -g pixelHeight probe/settings-simctl.png
+          ls -la probe
+
+      - name: Probe tapping, scrolling and typing
+        run: |
+          set -x
+          time axe tap --label "General" --udid "$UDID" || true
+          sleep 2
+          axe describe-ui --udid "$UDID" > probe/general-ui.json
+          axe screenshot --output probe/general.png --udid "$UDID"
+          time axe gesture scroll-down --udid "$UDID" || true
+          sleep 1
+          axe describe-ui --udid "$UDID" > probe/general-scrolled-ui.json
+          time axe button home --udid "$UDID" || true
+          sleep 1
+          axe screenshot --output probe/home.png --udid "$UDID"
+          axe describe-ui --udid "$UDID" > probe/home-ui.json
+          time xcrun simctl openurl "$UDID" "https://example.com" || true
+          sleep 6
+          axe describe-ui --udid "$UDID" > probe/safari-ui.json
+          axe screenshot --output probe/safari.png --udid "$UDID"
+          time xcrun simctl ui "$UDID" appearance dark || true
+          time axe swipe --start-x 200 --start-y 600 --end-x 200 --end-y 300 --udid "$UDID" || true
+          axe screenshot --output probe/safari-dark.png --udid "$UDID"
+
+      - name: Probe app control and logs
+        run: |
+          set -x
+          xcrun simctl listapps "$UDID" > probe/listapps.plist 2>&1 || true
+          xcrun simctl listapps "$UDID" | grep -E "CFBundleIdentifier" | head -40 || true
+          xcrun simctl terminate "$UDID" com.apple.mobilesafari || true
+          time xcrun simctl spawn "$UDID" log show --last 30s --style compact 2>&1 | tail -20 || true
+          ls ~/Library/Logs/DiagnosticReports 2>/dev/null | head || true
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: ios-probe
+          path: probe/
