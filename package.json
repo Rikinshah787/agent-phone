@@ -1,0 +1,40 @@
+{
+  "name": "agent-phone",
+  "version": "0.1.0",
+  "description": "Give your AI agent a phone. One command sets up an Android emulator and hands it to your agent over MCP.",
+  "type": "module",
+  "bin": {
+    "agent-phone": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=20.15"
+  },
+  "keywords": [
+    "mcp",
+    "android",
+    "emulator",
+    "ai-agent",
+    "claude",
+    "mobile-testing"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "fast-xml-parser": "^5.11.2",
+    "yauzl": "^3.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/yauzl": "^3.4.0",
+    "typescript": "^5.9.3"
+  }
+}
