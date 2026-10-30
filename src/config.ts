@@ -28,6 +28,9 @@ export const tools = {
   emulator: path.join(paths.sdk, 'emulator', `emulator${host.exe}`),
 };
 
+/** What `npx` installs this from. Becomes 'agent-phone' once the package is on npm. */
+export const PACKAGE_SPEC = 'github:Rikinshah787/agent-phone';
+
 export const DEFAULT_ANDROID = 35;
 export const DEFAULT_TAG = 'google_apis';
 export const DEFAULT_DEVICE = 'pixel-8';

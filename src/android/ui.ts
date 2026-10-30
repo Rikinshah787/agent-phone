@@ -1,15 +1,31 @@
 import { XMLParser } from 'fast-xml-parser';
 
+/** Every visible node on screen, with the raw attributes test selectors match against. */
+export interface UiNode {
+  text: string;
+  desc: string;
+  hint: string;
+  resourceId: string;
+  /** Switch/checkbox state; undefined when the node can't be checked. */
+  checked?: boolean;
+  bounds: [number, number, number, number];
+}
+
 export interface UiElement {
   ref: number;
   kind: string;
+  /** What the agent sees: own text, or the texts of a tappable container's children. */
   label: string;
   id?: string;
   bounds: [number, number, number, number];
   flags: string[];
   actionable: boolean;
+  editable: boolean;
   /** Length of the current text, used to clear input fields. */
   textLength: number;
+  /** The raw node, and for an unlabelled container the child whose text labels it. */
+  node: UiNode;
+  labelNode?: UiNode;
 }
 
 export interface UiWindow {
@@ -26,6 +42,7 @@ export interface UiSnapshot {
   /** Windows from bottom to top: the app, then any dialog, popup or keyboard over it. */
   windows: UiWindow[];
   elements: UiElement[];
+  nodes: UiNode[];
 }
 
 const parser = new XMLParser({
@@ -96,23 +113,44 @@ function rawWindows(doc: any): RawWindow[] {
 export function parseUi(xml: string): UiSnapshot {
   const raws = rawWindows(parser.parse(xml));
   const windows: UiWindow[] = [];
-  let elements: UiElement[] = [];
   const all: UiElement[] = [];
+  const nodes: UiNode[] = [];
+  const nodeOf = new Map<any, UiNode>();
   const absorbed = new Set<any>();
+  let elements: UiElement[] = [];
   let width = 0;
   let height = 0;
 
+  const toNode = (n: any): UiNode => {
+    let node = nodeOf.get(n);
+    if (!node) {
+      node = {
+        text: String(n.text ?? ''),
+        desc: String(n['content-desc'] ?? ''),
+        hint: String(n.hint ?? ''),
+        resourceId: String(n['resource-id'] ?? ''),
+        checked: isTrue(n.checkable) ? isTrue(n.checked) : undefined,
+        bounds: parseBounds(n.bounds),
+      };
+      nodeOf.set(n, node);
+    }
+    return node;
+  };
+
   const visit = (n: any) => {
-    const bounds = parseBounds(n.bounds);
+    const node = toNode(n);
+    const bounds = node.bounds;
     width = Math.max(width, bounds[2]);
     height = Math.max(height, bounds[3]);
     const visible = bounds[2] > bounds[0] && bounds[3] > bounds[1];
+    if (visible) nodes.push(node);
     const actionable = isActionable(n);
-    let label = ownLabel(n);
     const editable = isEditable(n);
-    const hint = String(n.hint ?? '').trim();
+    let label = ownLabel(n);
+    let labelNode: UiNode | undefined;
+    const hint = node.hint.trim();
     // Older Android versions report a field's hint as its text when the field is empty.
-    const textLength = editable && hint && label === hint ? 0 : String(n.text ?? '').length;
+    const textLength = editable && hint && label === hint ? 0 : node.text.length;
 
     if (visible && actionable && !label && isTrue(n.clickable)) {
       const kids: any[] = [];
@@ -123,6 +161,7 @@ export function parseUi(xml: string): UiSnapshot {
       } else if (kids.length > 4) {
         label = `${kids.slice(0, 2).map(ownLabel).join(' · ')} …`;
       }
+      if (kids.length > 0) labelNode = toNode(kids[0]);
     }
 
     if (visible && (actionable || (label && !absorbed.has(n)))) {
@@ -136,16 +175,18 @@ export function parseUi(xml: string): UiSnapshot {
       if (!isTrue(n.clickable) && isTrue(n['long-clickable'])) flags.push('long-press');
       if (n.enabled === 'false') flags.push('disabled');
       if (!actionable) flags.push('text');
-      const rid = String(n['resource-id'] ?? '');
       elements.push({
         ref: all.length + elements.length + 1,
         kind: String(n.class ?? 'View').split('.').pop() ?? 'View',
         label: truncate(label),
-        id: rid ? rid.split('/').pop() : undefined,
+        id: node.resourceId ? node.resourceId.split('/').pop() : undefined,
         bounds,
         flags,
         actionable,
+        editable,
         textLength,
+        node,
+        labelNode,
       });
     }
     for (const child of n.node ?? []) visit(child);
@@ -161,20 +202,38 @@ export function parseUi(xml: string): UiSnapshot {
   const appWindows = raws.filter((w) => w.type === 'TYPE_APPLICATION');
   const main = raws.find((w) => w.active && w.type === 'TYPE_APPLICATION') ?? appWindows[appWindows.length - 1] ?? raws[0];
   const pkg = String(main?.roots[0]?.package ?? '');
-  return { pkg, width, height, windows, elements: all };
+  return { pkg, width, height, windows, elements: all, nodes };
 }
 
-/** Best match for a piece of visible text: exact, then prefix, then substring; tappable elements first. */
+/**
+ * Best match for a piece of visible text. Exact matches beat prefix matches beat substrings,
+ * matching case beats ignoring it, and a field's typed value ranks below other elements,
+ * so "Dark theme" finds the switch rather than a search box containing "dark theme".
+ */
 export function findByText(elements: UiElement[], query: string): UiElement | undefined {
-  const q = query.trim().toLowerCase();
-  const tests = [
-    (e: UiElement) => e.label.toLowerCase() === q || e.id?.toLowerCase() === q,
-    (e: UiElement) => e.label.toLowerCase().startsWith(q),
-    (e: UiElement) => e.label.toLowerCase().includes(q),
-  ];
-  for (const test of tests) {
-    const hits = elements.filter(test);
-    if (hits.length) return hits.find((e) => e.actionable) ?? hits[0];
+  const q = query.trim();
+  const ql = q.toLowerCase();
+  const score = (e: UiElement): number => {
+    const label = e.label;
+    const ll = label.toLowerCase();
+    let s: number;
+    if (label === q || e.id === q) s = 60;
+    else if (ll === ql || e.id?.toLowerCase() === ql) s = 50;
+    else if (ll.startsWith(ql)) s = 30;
+    else if (ll.includes(ql)) s = 20;
+    else return 0;
+    if (e.editable) s -= 15;
+    if (e.actionable) s += 5;
+    return s;
+  };
+  let best: UiElement | undefined;
+  let bestScore = 0;
+  for (const e of elements) {
+    const s = score(e);
+    if (s > bestScore) {
+      best = e;
+      bestScore = s;
+    }
   }
-  return undefined;
+  return best;
 }

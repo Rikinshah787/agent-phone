@@ -61,6 +61,8 @@ export async function bootEmulator(adb: Adb, avd: string, opts: BootOptions = {}
     const fd = fs.openSync(logFile, 'w');
     const args = ['-avd', avd, '-no-boot-anim', '-no-audio', '-netdelay', 'none', '-netspeed', 'full'];
     if (opts.headless) args.push('-no-window');
+    // CI machines and Linux servers have no GPU, so render in software there.
+    if (opts.headless && (process.env.CI || (host.os === 'linux' && !process.env.DISPLAY))) args.push('-gpu', 'swiftshader_indirect');
     if (opts.wipe) args.push('-wipe-data');
     // Detached so the phone keeps running after the agent session ends.
     const child = spawn(tools.emulator, args, { env: androidEnv(), detached: true, stdio: ['ignore', fd, fd] });
@@ -70,7 +72,8 @@ export async function bootEmulator(adb: Adb, avd: string, opts: BootOptions = {}
     report(`Starting emulator (log: ${logFile})`);
   }
 
-  const deadline = Date.now() + (opts.timeoutMs ?? 300_000);
+  // A first boot with software rendering on a CI machine can take several minutes.
+  const deadline = Date.now() + (opts.timeoutMs ?? 600_000);
   let lastNote = Date.now();
   while (Date.now() < deadline) {
     if (exitCode !== undefined && exitCode !== 0) {

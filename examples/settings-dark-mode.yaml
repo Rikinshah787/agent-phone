@@ -1,0 +1,16 @@
+# Turn on dark mode
+# Recorded by agent-phone on 2026-10-30.
+# Replay: npx agent-phone test <this file>    (format: Maestro flow, https://maestro.dev)
+appId: com.android.settings
+---
+- launchApp:
+    appId: com.android.settings
+- scrollUntilVisible:
+    element: Display & touch
+    direction: DOWN
+- tapOn: Display & touch
+- tapOn:
+    id: switchWidget
+- assertVisible:
+    text: Dark theme
+    checked: true

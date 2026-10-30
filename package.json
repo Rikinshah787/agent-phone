@@ -1,7 +1,7 @@
 {
   "name": "agent-phone",
   "version": "0.1.0",
-  "description": "Give your AI agent a phone. One command sets up an Android emulator and hands it to your agent over MCP.",
+  "description": "Give your AI agent a phone, get a test suite back. One command boots an Android emulator your agent drives over MCP, and what it does becomes replayable tests.",
   "type": "module",
   "bin": {
     "agent-phone": "dist/cli.js"
@@ -12,8 +12,14 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "prepublishOnly": "npm run build"
+    "prepare": "tsc"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rikinshah787/agent-phone.git"
+  },
+  "homepage": "https://github.com/Rikinshah787/agent-phone#readme",
+  "bugs": "https://github.com/Rikinshah787/agent-phone/issues",
   "engines": {
     "node": ">=20.15"
   },
@@ -23,12 +29,15 @@
     "emulator",
     "ai-agent",
     "claude",
-    "mobile-testing"
+    "mobile-testing",
+    "maestro",
+    "e2e-testing"
   ],
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "fast-xml-parser": "^5.11.2",
+    "yaml": "^2.9.1",
     "yauzl": "^3.4.0",
     "zod": "^4.6.7"
   },

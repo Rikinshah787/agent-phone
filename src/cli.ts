@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { checkAcceleration } from './android/emulator.js';
-import { DEFAULT_ANDROID, DEFAULT_TAG, paths } from './config.js';
+import { DEFAULT_ANDROID, DEFAULT_TAG, PACKAGE_SPEC, paths } from './config.js';
+import { FlowRunner } from './flow/runner.js';
 import { runMcpServer } from './mcp.js';
 import { Phones } from './phones.js';
 import { ensureInstalled, requiredComponents } from './sdk/installer.js';
@@ -22,6 +23,8 @@ Usage
   agent-phone list       Connected devices and device profiles
   agent-phone look [--out screen.png]
                          Print what's on screen, optionally save a screenshot
+  agent-phone test <flow.yaml | folder>... [--serial S]
+                         Replay recorded tests (Maestro format); exits 1 on failure
   agent-phone doctor     Check the installation
   agent-phone mcp        Run the MCP server (this is what your agent connects to)
 
@@ -29,9 +32,30 @@ With no command, agent-phone runs setup in a terminal and the MCP server otherwi
 Files live in ${paths.home} (override with AGENT_PHONE_HOME).
 `;
 
+/** Expand folders to the flow files inside them (Maestro's config.yaml is not a flow). */
+function flowFiles(targets: string[]): string[] {
+  const out: string[] = [];
+  for (const t of targets) {
+    const abs = path.resolve(t);
+    if (!fs.existsSync(abs)) throw new Error(`No such file or folder: ${t}`);
+    if (fs.statSync(abs).isDirectory()) {
+      out.push(
+        ...fs
+          .readdirSync(abs)
+          .filter((f) => /\.ya?ml$/i.test(f) && !/^config\.ya?ml$/i.test(f))
+          .sort()
+          .map((f) => path.join(abs, f)),
+      );
+    } else {
+      out.push(abs);
+    }
+  }
+  return out;
+}
+
 function connectHint(): string {
   const script = process.argv[1] ?? '';
-  const cmd = script.includes('_npx') ? 'npx -y agent-phone mcp' : `node "${path.resolve(script)}" mcp`;
+  const cmd = script.includes('_npx') ? `npx -y ${PACKAGE_SPEC} mcp` : `node "${path.resolve(script)}" mcp`;
   return `Connect it to Claude Code:\n  claude mcp add phone -- ${cmd}`;
 }
 
@@ -45,6 +69,7 @@ async function main(): Promise<void> {
       wipe: { type: 'boolean' },
       'no-start': { type: 'boolean' },
       out: { type: 'string' },
+      serial: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
       version: { type: 'boolean', short: 'v' },
     },
@@ -94,6 +119,31 @@ async function main(): Promise<void> {
         fs.writeFileSync(values.out, shot.png);
         log(`Saved ${shot.width}x${shot.height} screenshot to ${path.resolve(values.out)}`);
       }
+      return;
+    }
+
+    case 'test': {
+      const files = flowFiles(positionals.slice(1));
+      if (files.length === 0) throw new Error('Pass one or more flow files or folders, e.g. `agent-phone test .maestro`.');
+      const device = await phones.get(values.serial);
+      let failed = 0;
+      for (const file of files) {
+        console.log(`\n${path.relative(process.cwd(), file) || file}`);
+        const runner = new FlowRunner(device, (s) =>
+          console.log(`  ${s.ok ? '✓' : '✗'} ${s.step}. ${s.command}: ${s.detail} (${(s.ms / 1000).toFixed(1)}s)`),
+        );
+        const result = await runner.run(file);
+        if (result.passed) {
+          console.log(`  PASSED in ${(result.ms / 1000).toFixed(1)}s`);
+        } else {
+          failed++;
+          const shot = file.replace(/\.ya?ml$/i, '') + '.failure.png';
+          fs.writeFileSync(shot, (await device.screenshot()).png);
+          console.log(`  FAILED (screenshot: ${shot})`);
+        }
+      }
+      console.log(`\n${files.length - failed} passed, ${failed} failed`);
+      process.exitCode = failed > 0 ? 1 : 0;
       return;
     }
 
