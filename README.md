@@ -51,8 +51,11 @@ $ agent-phone test .maestro
 ## Quick start
 
 ```bash
-npx -y github:Rikinshah787/agent-phone setup                         # downloads Android pieces, boots a phone
-claude mcp add phone -- npx -y github:Rikinshah787/agent-phone mcp    # gives Claude Code the phone
+# Download the Android pieces and boot a phone
+npx -y --allow-git=root github:Rikinshah787/agent-phone setup
+
+# Give Claude Code the phone
+claude mcp add phone -- npx -y --allow-git=root github:Rikinshah787/agent-phone mcp
 ```
 
 Then ask your agent:
@@ -105,8 +108,8 @@ The phone runs on GitHub's free Linux runners. This repo's own [CI](.github/work
   run: |
     echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
     sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
-- run: npx -y github:Rikinshah787/agent-phone start --headless
-- run: npx -y github:Rikinshah787/agent-phone test .maestro
+- run: npx -y --allow-git=root github:Rikinshah787/agent-phone start --headless
+- run: npx -y --allow-git=root github:Rikinshah787/agent-phone test .maestro
 ```
 
 ## Any phone
