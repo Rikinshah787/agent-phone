@@ -6,6 +6,7 @@ import { checkAcceleration } from './android/emulator.js';
 import { DEFAULT_ANDROID, DEFAULT_TAG, PACKAGE_SPEC, paths } from './config.js';
 import { runMcpServer } from './mcp.js';
 import { runHost } from './remote/host.js';
+import { openInBrowser, startViewer } from './viewer/server.js';
 import { describeMac, loadMacConfig, RemoteMac, saveMacConfig, type MacConfig } from './remote/mac.js';
 import { Phones } from './phones.js';
 import { ensureInstalled, requiredComponents } from './sdk/installer.js';
@@ -28,6 +29,8 @@ Usage
                          Print what's on screen, optionally save a screenshot
   agent-phone test <flow.yaml | folder>... [--serial S]
                          Replay recorded tests (Maestro format); exits 1 on failure
+  agent-phone view [serial] [--no-open]
+                         Live view of the phone in your browser (watch, tap, type)
   agent-phone doctor     Check the installation
   agent-phone mcp        Run the MCP server (this is what your agent connects to)
 
@@ -76,6 +79,7 @@ async function main(): Promise<void> {
       headless: { type: 'boolean' },
       wipe: { type: 'boolean' },
       'no-start': { type: 'boolean' },
+      'no-open': { type: 'boolean' },
       out: { type: 'string' },
       serial: { type: 'string' },
       platform: { type: 'string' },
@@ -180,6 +184,15 @@ async function main(): Promise<void> {
 
     case 'host':
       return runHost(VERSION);
+
+    case 'view': {
+      const serial = positionals[1];
+      const device = await phones.get(serial);
+      const url = await startViewer(() => phones.get(serial), () => device.id);
+      log(`Live view of ${device.id}: ${url}\nPress Ctrl+C to stop.`);
+      if (!values['no-open']) await openInBrowser(url).catch(() => undefined);
+      return new Promise<void>(() => {});
+    }
 
     case 'ios': {
       const sub = positionals[1];

@@ -51,12 +51,13 @@ export function parseIosUi(json: string): UiSnapshot {
   let width = 0;
   let height = 0;
   let appName = '';
-  // iOS sometimes reports the same element twice (once per container that shows it).
-  const seen = new Set<string>();
+  // iOS often reports one thing several times (a container, then the button inside it).
+  const byKey = new Map<string, UiElement>();
 
   /**
-   * A tappable row often contains a button and a text with the same label; list the row once.
-   * Disabled decorations inside it (chevrons) and scroll-bar indicators are left out too.
+   * A tappable row usually contains its own label again, split into texts ("iOS Version",
+   * "26.5") plus an icon and a chevron. List the row once and leave those parts out.
+   * Scroll-bar indicators are left out too.
    */
   const visit = (n: any, insideLabel?: string) => {
     if (!n || typeof n !== 'object') return;
@@ -87,12 +88,21 @@ export function parseIosUi(json: string): UiSnapshot {
       const actionable = ACTIONABLE.has(kind) || SCROLLABLE.has(kind);
       const shown = label || (editable ? value || placeholder : '') || (toggle ? '' : value);
       const redundant =
-        insideLabel !== undefined && !toggle && !editable && (label === insideLabel || n.enabled === false || (!label && !id));
+        insideLabel !== undefined &&
+        !toggle &&
+        !editable &&
+        (n.enabled === false || (!label && !id) || kind === 'Image' || (label !== '' && insideLabel.includes(label)));
       const noise = kind === 'Slider' && /scroll bar/i.test(label);
-      const key = `${kind}|${label}|${id}|${bounds.map(Math.round).join(',')}`;
-      const duplicate = seen.has(key);
-      if (visible && !redundant && !noise && !duplicate && (actionable || shown)) {
-        seen.add(key);
+      const key = `${label}|${id}|${bounds.map(Math.round).join(',')}`;
+      const existing = byKey.get(key);
+      if (existing && visible) {
+        if (actionable && !existing.actionable) {
+          existing.kind = kind;
+          existing.actionable = true;
+          existing.flags = existing.flags.filter((f) => f !== 'text');
+          existing.node = node;
+        }
+      } else if (visible && !redundant && !noise && (actionable || shown)) {
         const flags: string[] = [];
         if (editable) flags.push(kind === 'SecureTextField' ? 'password-input' : 'input');
         if (editable && placeholder) flags.push(`hint="${truncate(placeholder)}"`);
@@ -101,7 +111,7 @@ export function parseIosUi(json: string): UiSnapshot {
         if (SCROLLABLE.has(kind)) flags.push('scrollable');
         if (n.enabled === false) flags.push('disabled');
         if (!actionable) flags.push('text');
-        elements.push({
+        const element: UiElement = {
           ref: elements.length + 1,
           kind,
           label: truncate(editable ? label || placeholder : shown),
@@ -112,7 +122,9 @@ export function parseIosUi(json: string): UiSnapshot {
           editable,
           textLength: editable && value !== placeholder ? value.length : 0,
           node,
-        });
+        };
+        elements.push(element);
+        byKey.set(key, element);
       }
     }
     const actionableHere = ACTIONABLE.has(kind) && kind !== 'Application';

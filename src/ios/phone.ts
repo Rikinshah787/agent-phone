@@ -57,30 +57,52 @@ export class IosPhone extends PhoneBase {
 
   protected async dumpUi(): Promise<UiSnapshot> {
     let lastError = '';
-    for (let attempt = 0; attempt < 3; attempt++) {
+    // Usually a second or two; the first read after boot, or on a small CI machine, can take 45s.
+    // Mid-transition, iOS can return an empty tree, so that counts as "try again" too.
+    for (let attempt = 0; attempt < 4; attempt++) {
       try {
-        return parseIosUi(await this.axe(['describe-ui'], 30_000));
+        const snap = parseIosUi(await this.axe(['describe-ui'], 90_000));
+        if (snap.elements.length > 0 || attempt === 3) {
+          if (!this.measured && snap.width) await this.measurePixelRatio(snap.width);
+          return snap;
+        }
+        lastError = 'the screen was empty (an animation was probably still running)';
       } catch (e: any) {
         lastError = e.message;
-        await sleep(800);
       }
+      await sleep(1000);
     }
     throw new Error(`Couldn't read the screen layout: ${lastError}`);
   }
 
-  protected async capture(maxEdge: number): Promise<Screenshot> {
+  private measured = false;
+
+  /** Screenshots are in pixels and the accessibility tree in points; 3x on current iPhones. */
+  private async measurePixelRatio(pointWidth: number): Promise<void> {
+    const file = await this.rawScreenshot();
+    this.pixelRatio = (await this.imageSize(file))[0] / pointWidth;
+    this.measured = true;
+  }
+
+  private async rawScreenshot(): Promise<string> {
     const file = path.join(this.tmp, 'screen.png');
     await simctl(['io', this.id, 'screenshot', '--type=png', file], 30_000);
-    const size = async () => {
-      const out = (await exec('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', file])).stdout.toString('utf8');
-      return [Number(/pixelWidth: (\d+)/.exec(out)?.[1]), Number(/pixelHeight: (\d+)/.exec(out)?.[1])];
-    };
-    let [w, h] = await size();
+    return file;
+  }
+
+  private async imageSize(file: string): Promise<[number, number]> {
+    const out = (await exec('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', file])).stdout.toString('utf8');
+    return [Number(/pixelWidth: (\d+)/.exec(out)?.[1]), Number(/pixelHeight: (\d+)/.exec(out)?.[1])];
+  }
+
+  protected async capture(maxEdge: number): Promise<Screenshot> {
     if (!this.screen) await this.ui();
+    const file = await this.rawScreenshot();
+    let [w, h] = await this.imageSize(file);
     if (this.screen?.w) this.pixelRatio = w / this.screen.w;
     if (Math.max(w, h) > maxEdge) {
       await exec('sips', ['-Z', String(maxEdge), file]);
-      [w, h] = await size();
+      [w, h] = await this.imageSize(file);
     }
     return { png: fs.readFileSync(file), width: w, height: h };
   }

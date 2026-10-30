@@ -97,7 +97,7 @@ export class Phones {
     const device = await this.attachLocal(sim.udid, 'ios');
     await device.prepare();
     report('Booted. Waiting for the home screen to be readable');
-    await device.waitUntilReady();
+    await device.waitUntilReady(180_000);
     return { device, description: `${sim.name.replace(/^agent-phone /, '')} (iOS ${version})` };
   }
 

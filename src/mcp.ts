@@ -8,7 +8,9 @@ import type { FlowResult } from './flow/runner.js';
 import { PROFILES } from './android/profiles.js';
 import { DEFAULT_ANDROID } from './config.js';
 import { Phones } from './phones.js';
+import { RemotePhone } from './remote/mac.js';
 import { log } from './util/log.js';
+import { openInBrowser, recordActivity, startViewer } from './viewer/server.js';
 
 const INSTRUCTIONS = `agent-phone gives you an Android phone (a local emulator, or a USB-connected phone) for running and testing apps.
 
@@ -52,9 +54,27 @@ async function run(fn: () => Promise<string | Result>): Promise<Result> {
 const serial = z.string().optional().describe('Which device to use. Only needed when several are connected.');
 const ref = z.number().int().optional().describe('Element number from the latest screen list.');
 
+/** Tools whose results go into the live viewer's activity feed. */
+const FEED = new Set([
+  'phone_start', 'phone_stop', 'phone_tap', 'phone_type', 'phone_scroll', 'phone_swipe', 'phone_key', 'phone_open',
+  'phone_install', 'phone_app', 'phone_test_start', 'phone_assert', 'phone_test_save', 'phone_test_run',
+]);
+
 export async function runMcpServer(version: string): Promise<void> {
   const phones = new Phones();
   const server = new McpServer({ name: 'agent-phone', version }, { instructions: INSTRUCTIONS });
+  let title = 'No phone started yet';
+  const viewer = () => startViewer(() => phones.get(), () => title);
+
+  // Report each action's first line (e.g. 'Tapped [6] Button "About"') to the live viewer.
+  const register: (...a: any[]) => unknown = server.registerTool.bind(server);
+  (server as any).registerTool = (name: string, config: any, cb: any) =>
+    register(name, config, async (args: any, extra: any) => {
+      const result = await cb(args, extra);
+      const text = result?.content?.find((c: any) => c.type === 'text')?.text;
+      if (!result?.isError && FEED.has(name) && text) recordActivity(text.split('\n')[0]);
+      return result;
+    });
 
   server.registerTool(
     'phone_start',
@@ -88,7 +108,15 @@ export async function runMcpServer(version: string): Promise<void> {
             .catch(() => {});
         };
         const s = await phones.start({ ...args, onProgress });
-        return `${s.description} is running as ${s.device.id}.\n\n${await s.device.observe(0)}`;
+        title = s.description;
+        let view = '';
+        // An iPhone on another computer has no window here, so open the live view instead.
+        if (s.device instanceof RemotePhone && !args.headless) {
+          const url = await viewer();
+          await openInBrowser(url).catch(() => undefined);
+          view = `\nLive view (opened in the browser): ${url}`;
+        }
+        return `${s.description} is running as ${s.device.id}.${view}\n\n${await s.device.observe(0)}`;
       }),
   );
 
@@ -107,6 +135,24 @@ export async function runMcpServer(version: string): Promise<void> {
       annotations: { readOnlyHint: true },
     },
     () => run(() => phones.status()),
+  );
+
+  server.registerTool(
+    'phone_view',
+    {
+      title: 'Show the phone live',
+      description:
+        "Open a live view of the phone in the user's browser: the screen updating in real time, what you are doing, " +
+        'and click/scroll/type controls for the user. Opens automatically for iPhones on a remote Mac.',
+      inputSchema: { open: z.boolean().optional().describe('Open the browser. Default true. Set false to just get the URL.') },
+      annotations: { readOnlyHint: true },
+    },
+    (args) =>
+      run(async () => {
+        const url = await viewer();
+        if (args.open !== false) await openInBrowser(url).catch(() => undefined);
+        return `Live view: ${url}`;
+      }),
   );
 
   server.registerTool(
