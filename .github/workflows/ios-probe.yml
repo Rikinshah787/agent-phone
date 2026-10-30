@@ -44,47 +44,75 @@ jobs:
 
       - name: Probe screen reading and screenshots
         run: |
-          set -x
+          set +e -x
+          xcrun simctl io "$UDID" screenshot probe/00-after-boot.png
           time xcrun simctl launch "$UDID" com.apple.Preferences
-          sleep 4
-          time axe describe-ui --udid "$UDID" > probe/settings-ui.json
-          head -c 3000 probe/settings-ui.json; echo
-          time axe screenshot --output probe/settings-axe.png --udid "$UDID"
-          time xcrun simctl io "$UDID" screenshot --type=png probe/settings-simctl.png
-          time xcrun simctl io "$UDID" screenshot --type=jpeg probe/settings-simctl.jpg
-          sips -g pixelWidth -g pixelHeight probe/settings-simctl.png
+          sleep 8
+          xcrun simctl io "$UDID" screenshot probe/01-settings-headless.png
+          axe describe-ui --udid "$UDID" > probe/01-ui-headless.json 2> probe/01-ui-headless.err; echo "describe-ui headless exit $?"
+          cat probe/01-ui-headless.err
+          # Now with the Simulator app window open
+          open -a Simulator --args -CurrentDeviceUDID "$UDID"
+          sleep 15
+          xcrun simctl io "$UDID" screenshot probe/02-settings-window.png
+          for i in 1 2 3; do
+            /usr/bin/time -p axe describe-ui --udid "$UDID" > probe/02-ui-window.json 2> probe/02-ui-window.err; rc=$?
+            echo "describe-ui with window, attempt $i: exit $rc"; tail -3 probe/02-ui-window.err
+            [ $rc -eq 0 ] && break; sleep 5
+          done
+          head -c 4000 probe/02-ui-window.json; echo
+          time axe screenshot --output probe/03-axe.png --udid "$UDID"
+          time xcrun simctl io "$UDID" screenshot --type=png probe/03-simctl.png
+          time xcrun simctl io "$UDID" screenshot --type=jpeg probe/03-simctl.jpg
+          sips -g pixelWidth -g pixelHeight probe/03-simctl.png
           ls -la probe
+          exit 0
 
       - name: Probe tapping, scrolling and typing
         run: |
-          set -x
-          time axe tap --label "General" --udid "$UDID" || true
+          set +e -x
+          time axe tap --label "General" --udid "$UDID"; echo "tap exit $?"
           sleep 2
-          axe describe-ui --udid "$UDID" > probe/general-ui.json
-          axe screenshot --output probe/general.png --udid "$UDID"
-          time axe gesture scroll-down --udid "$UDID" || true
+          axe describe-ui --udid "$UDID" > probe/10-general-ui.json
+          xcrun simctl io "$UDID" screenshot probe/10-general.png
+          time axe gesture scroll-down --udid "$UDID"; echo "gesture exit $?"
           sleep 1
-          axe describe-ui --udid "$UDID" > probe/general-scrolled-ui.json
-          time axe button home --udid "$UDID" || true
+          axe describe-ui --udid "$UDID" > probe/11-general-scrolled-ui.json
+          xcrun simctl io "$UDID" screenshot probe/11-general-scrolled.png
+          time axe drag --start-x 200 --start-y 700 --end-x 200 --end-y 400 --duration 0.6 --udid "$UDID"; echo "drag exit $?"
           sleep 1
-          axe screenshot --output probe/home.png --udid "$UDID"
-          axe describe-ui --udid "$UDID" > probe/home-ui.json
-          time xcrun simctl openurl "$UDID" "https://example.com" || true
-          sleep 6
-          axe describe-ui --udid "$UDID" > probe/safari-ui.json
-          axe screenshot --output probe/safari.png --udid "$UDID"
-          time xcrun simctl ui "$UDID" appearance dark || true
-          time axe swipe --start-x 200 --start-y 600 --end-x 200 --end-y 300 --udid "$UDID" || true
-          axe screenshot --output probe/safari-dark.png --udid "$UDID"
+          axe describe-ui --udid "$UDID" > probe/12-after-drag-ui.json
+          time axe button home --udid "$UDID"; echo "home exit $?"
+          sleep 2
+          xcrun simctl io "$UDID" screenshot probe/13-home.png
+          axe describe-ui --udid "$UDID" > probe/13-home-ui.json
+          time xcrun simctl openurl "$UDID" "https://example.com"; echo "openurl exit $?"
+          sleep 8
+          axe describe-ui --udid "$UDID" > probe/14-safari-ui.json
+          xcrun simctl io "$UDID" screenshot probe/14-safari.png
+          time xcrun simctl ui "$UDID" appearance dark; echo "appearance exit $?"
+          xcrun simctl launch "$UDID" com.apple.Preferences
+          sleep 3
+          axe tap --label "Search" --udid "$UDID"; echo "tap search exit $?"
+          sleep 2
+          time axe type 'wallpaper' --udid "$UDID"; echo "type exit $?"
+          sleep 2
+          axe describe-ui --udid "$UDID" > probe/15-search-ui.json
+          xcrun simctl io "$UDID" screenshot probe/15-search-dark.png
+          exit 0
 
       - name: Probe app control and logs
         run: |
-          set -x
-          xcrun simctl listapps "$UDID" > probe/listapps.plist 2>&1 || true
-          xcrun simctl listapps "$UDID" | grep -E "CFBundleIdentifier" | head -40 || true
-          xcrun simctl terminate "$UDID" com.apple.mobilesafari || true
-          time xcrun simctl spawn "$UDID" log show --last 30s --style compact 2>&1 | tail -20 || true
-          ls ~/Library/Logs/DiagnosticReports 2>/dev/null | head || true
+          set +e -x
+          xcrun simctl listapps "$UDID" | plutil -convert json -o probe/listapps.json - ; echo "listapps exit $?"
+          head -c 1500 probe/listapps.json; echo
+          time xcrun simctl terminate "$UDID" com.apple.mobilesafari; echo "terminate exit $?"
+          xcrun simctl terminate "$UDID" com.apple.mobilesafari; echo "terminate again exit $?"
+          xcrun simctl get_app_container "$UDID" com.apple.Preferences data; echo "container exit $?"
+          time xcrun simctl spawn "$UDID" log show --last 1m --style compact > probe/log.txt 2>&1; echo "log exit $?"
+          tail -15 probe/log.txt
+          ls -la ~/Library/Logs/DiagnosticReports 2>/dev/null | head
+          exit 0
 
       - uses: actions/upload-artifact@v7
         if: always()
