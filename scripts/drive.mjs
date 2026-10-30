@@ -21,7 +21,9 @@ fs.mkdirSync(outDir, { recursive: true });
 
 const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'cli.js').replace(/\\/g, '/');
 const client = new Client({ name: 'drive', version: '0' });
-await client.connect(new StdioClientTransport({ command: process.execPath, args: [cli, 'mcp'], stderr: 'inherit' }));
+// Pass the whole environment: the SDK otherwise forwards only a few safe variables,
+// and settings such as AGENT_PHONE_MAC_COMMAND would be lost.
+await client.connect(new StdioClientTransport({ command: process.execPath, args: [cli, 'mcp'], env: { ...process.env }, stderr: 'inherit' }));
 
 let failures = 0;
 for (const [i, [name, args = {}]] of steps.entries()) {

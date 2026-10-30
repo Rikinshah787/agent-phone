@@ -93,8 +93,10 @@ export async function boot(udid: string, opts: { headless?: boolean; timeoutMs?:
   const err = r.stderr.trim();
   if (r.code !== 0 && !/current state: Booted/i.test(err)) throw new Error(`Couldn't boot the simulator: ${err}`);
   await simctl(['bootstatus', udid, '-b'], opts.timeoutMs ?? 600_000);
-  // Show the window when someone is at this Mac to watch.
-  if (!opts.headless) await exec('open', ['-a', 'Simulator', '--args', '-CurrentDeviceUDID', udid]).catch(() => undefined);
+  // The Simulator window has to be open: with Xcode 26 the accessibility tree (and so
+  // reading the screen) is unavailable for simulators without one. So "headless" iPhones
+  // still get a window.
+  await exec('open', ['-a', 'Simulator', '--args', '-CurrentDeviceUDID', udid]).catch(() => undefined);
   await sleep(1000);
 }
 

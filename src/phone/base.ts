@@ -1,9 +1,9 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { SCREENSHOT_MAX_EDGE } from '../config.js';
 import { Recording } from '../flow/recording.js';
+import { FlowRunner, type FlowResult, type StepResult } from '../flow/runner.js';
 import { matchSelector, percentPoint, selectorFor, textPattern, type Selector } from '../flow/selectors.js';
 import { sleep } from '../util/exec.js';
+import type { Phone } from './phone.js';
 import { findByText, type UiElement, type UiSnapshot } from './ui.js';
 
 export type Platform = 'android' | 'ios';
@@ -59,7 +59,7 @@ const MAESTRO_KEYS: Record<string, string> = {
  * While a test recording is active, each action is also written down as a Maestro
  * command with a selector that will find the same element again.
  */
-export abstract class PhoneBase {
+export abstract class PhoneBase implements Phone {
   abstract readonly platform: Platform;
   abstract readonly id: string;
   /** App id of the system Settings app, so agents can just say "settings". */
@@ -397,11 +397,12 @@ export abstract class PhoneBase {
     return { ok, message: ok ? `Check passed: ${label} ${state}.${recorded}` : `Check FAILED: expected ${label} ${state}, but it ${visible ? 'is not' : 'is'}.` };
   }
 
-  saveTest(name: string, file: string): { file: string; yaml: string; steps: number } {
+  async testYaml(name: string): Promise<{ yaml: string; steps: number }> {
     if (!this.recording) throw new Error('No test is being recorded. Start one with phone_test_start.');
-    const yaml = this.recording.toYaml(name);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, yaml);
-    return { file, yaml, steps: this.recording.length };
+    return { yaml: this.recording.toYaml(name), steps: this.recording.length };
+  }
+
+  runFlow(file: string, onStep?: (r: StepResult) => void): Promise<FlowResult> {
+    return new FlowRunner(this, onStep).run(file);
   }
 }

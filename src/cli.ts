@@ -4,8 +4,9 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { checkAcceleration } from './android/emulator.js';
 import { DEFAULT_ANDROID, DEFAULT_TAG, PACKAGE_SPEC, paths } from './config.js';
-import { FlowRunner } from './flow/runner.js';
 import { runMcpServer } from './mcp.js';
+import { runHost } from './remote/host.js';
+import { describeMac, loadMacConfig, RemoteMac, saveMacConfig, type MacConfig } from './remote/mac.js';
 import { Phones } from './phones.js';
 import { ensureInstalled, requiredComponents } from './sdk/installer.js';
 import { log } from './util/log.js';
@@ -29,6 +30,11 @@ Usage
                          Replay recorded tests (Maestro format); exits 1 on failure
   agent-phone doctor     Check the installation
   agent-phone mcp        Run the MCP server (this is what your agent connects to)
+
+iPhone from Windows or Linux (the simulator runs on a Mac you can SSH into)
+  agent-phone ios connect user@mac [--port 22] [--identity ~/.ssh/key] [--host-command CMD]
+  agent-phone ios status | disconnect
+  agent-phone host       Run on the Mac; serves its simulators (started over SSH for you)
 
 With no command, agent-phone runs setup in a terminal and the MCP server otherwise.
 Files live in ${paths.home} (override with AGENT_PHONE_HOME).
@@ -74,6 +80,9 @@ async function main(): Promise<void> {
       serial: { type: 'string' },
       platform: { type: 'string' },
       ios: { type: 'string' },
+      port: { type: 'string' },
+      identity: { type: 'string' },
+      'host-command': { type: 'string' },
       help: { type: 'boolean', short: 'h' },
       version: { type: 'boolean', short: 'v' },
     },
@@ -104,7 +113,7 @@ async function main(): Promise<void> {
         android,
         headless: values.headless,
         wipe: values.wipe,
-        onProgress: () => {}, // installer and emulator already log to stderr
+        onProgress: log,
       });
       log(`\n${s.description} is running as ${s.device.id}.`);
       if (command === 'setup') log(`\n${connectHint()}`);
@@ -119,7 +128,7 @@ async function main(): Promise<void> {
 
     case 'look': {
       const d = await phones.get(positionals[1]);
-      console.log(d.describe(await d.ui()));
+      console.log(await d.observe(0));
       if (values.out) {
         const shot = await d.screenshot();
         fs.writeFileSync(values.out, shot.png);
@@ -135,10 +144,9 @@ async function main(): Promise<void> {
       let failed = 0;
       for (const file of files) {
         console.log(`\n${path.relative(process.cwd(), file) || file}`);
-        const runner = new FlowRunner(device, (s) =>
+        const result = await device.runFlow(file, (s) =>
           console.log(`  ${s.ok ? '✓' : '✗'} ${s.step}. ${s.command}: ${s.detail} (${(s.ms / 1000).toFixed(1)}s)`),
         );
-        const result = await runner.run(file);
         if (result.passed) {
           console.log(`  PASSED in ${(result.ms / 1000).toFixed(1)}s`);
         } else {
@@ -167,6 +175,45 @@ async function main(): Promise<void> {
         console.log(`Hardware acceleration: PROBLEM\n${e.message}`);
       }
       console.log(`\n${await phones.status().catch((e) => e.message)}`);
+      return;
+    }
+
+    case 'host':
+      return runHost(VERSION);
+
+    case 'ios': {
+      const sub = positionals[1];
+      if (sub === 'disconnect') {
+        saveMacConfig(undefined);
+        return log('Forgot the Mac. iPhones will need `agent-phone ios connect` again.');
+      }
+      if (sub === 'status') {
+        const config = loadMacConfig();
+        return log(config ? `iPhones run on ${describeMac(config)}.` : 'No Mac connected. Run `agent-phone ios connect user@your-mac`.');
+      }
+      if (sub !== 'connect' || !positionals[2]) throw new Error('Usage: agent-phone ios connect user@your-mac');
+      const config: MacConfig = {
+        ssh: positionals[2],
+        port: values.port ? Number(values.port) : undefined,
+        identity: values.identity,
+        hostCommand: values['host-command'],
+      };
+      log(`Connecting to ${config.ssh} over SSH and starting agent-phone there (the first time downloads it)...`);
+      const mac = new RemoteMac(config);
+      try {
+        const hello = await mac.request<{ version: string; platform: string; xcode: string | null; axe: boolean; node: string }>('hello');
+        if (hello.platform !== 'darwin') throw new Error(`${config.ssh} is not a Mac (it runs ${hello.platform}). iPhone simulators need macOS.`);
+        if (!hello.xcode) throw new Error(`Xcode isn't installed on ${config.ssh}. Install it from the App Store, open it once, then run this again.`);
+        saveMacConfig(config);
+        log(`Connected: ${hello.xcode}, Node ${hello.node}, agent-phone ${hello.version} on the Mac.`);
+        if (!hello.axe) log('AXe (simulator automation) is not installed on the Mac yet; the first phone_start installs it with Homebrew.');
+        log(
+          '\nThe Mac needs a logged-in desktop session (not just SSH), because the Simulator app has to be open to read the screen.' +
+            '\nNow ask your agent to start a phone with platform "ios", or run: agent-phone start --platform ios',
+        );
+      } finally {
+        mac.close();
+      }
       return;
     }
 

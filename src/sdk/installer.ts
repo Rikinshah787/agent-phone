@@ -47,10 +47,7 @@ export function missingComponents(api: number, tag = DEFAULT_TAG): Component[] {
 }
 
 export async function ensureInstalled(api: number, tag = DEFAULT_TAG, onProgress?: ProgressFn): Promise<void> {
-  const report = (m: string) => {
-    log(m);
-    onProgress?.(m);
-  };
+  const report = onProgress ?? log;
   const missing = missingComponents(api, tag);
   if (missing.length > 0) {
     report(

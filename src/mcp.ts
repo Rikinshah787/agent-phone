@@ -3,10 +3,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { KEY_NAMES } from './phone/base.js';
-import { FlowRunner, type FlowResult } from './flow/runner.js';
+import fs from 'node:fs';
+import type { FlowResult } from './flow/runner.js';
 import { PROFILES } from './android/profiles.js';
 import { DEFAULT_ANDROID } from './config.js';
 import { Phones } from './phones.js';
+import { log } from './util/log.js';
 
 const INSTRUCTIONS = `agent-phone gives you an Android phone (a local emulator, or a USB-connected phone) for running and testing apps.
 
@@ -79,6 +81,7 @@ export async function runMcpServer(version: string): Promise<void> {
         const token = extra._meta?.progressToken;
         let step = 0;
         const onProgress = (message: string) => {
+          log(message);
           if (token === undefined) return;
           extra
             .sendNotification({ method: 'notifications/progress', params: { progressToken: token, progress: ++step, message } } as any)
@@ -364,8 +367,10 @@ export async function runMcpServer(version: string): Promise<void> {
       run(async () => {
         const d = await phones.get(args.serial);
         const file = path.resolve(args.path ?? path.join('.maestro', `${slug(args.name)}.yaml`));
-        const saved = d.saveTest(args.name, file);
-        return `Saved ${saved.steps} steps to ${saved.file}\n\n${saved.yaml}`;
+        const { yaml, steps } = await d.testYaml(args.name);
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, yaml);
+        return `Saved ${steps} steps to ${file}\n\n${yaml}`;
       }),
   );
 
@@ -379,7 +384,7 @@ export async function runMcpServer(version: string): Promise<void> {
     (args) =>
       run(async () => {
         const d = await phones.get(args.serial);
-        const result = await new FlowRunner(d).run(path.resolve(args.path));
+        const result = await d.runFlow(path.resolve(args.path));
         const report = formatFlow(result);
         if (result.passed) return report;
         const shot = await d.screenshot();

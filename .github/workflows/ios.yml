@@ -2,15 +2,18 @@ name: iOS
 
 on:
   push:
-    branches: [main, ios]
+    branches: [main]
   pull_request:
   workflow_dispatch:
+
+env:
+  AGENT_PHONE_DEBUG: '1'
 
 jobs:
   iphone:
     name: Boot an iPhone and drive it through MCP
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -20,9 +23,11 @@ jobs:
       - run: npm ci
 
       - name: Boot an iPhone (installs AXe if missing)
+        timeout-minutes: 20
         run: node dist/cli.js start --platform ios
 
       - name: Look around, tap through Settings, go home
+        timeout-minutes: 20
         run: |
           node scripts/drive.mjs out '[
             ["phone_list", {}],
@@ -35,6 +40,7 @@ jobs:
           ]'
 
       - name: Record a test on the iPhone, then replay it
+        timeout-minutes: 20
         run: |
           node scripts/drive.mjs out '[
             ["phone_test_start", {"app": "settings"}],
@@ -42,6 +48,18 @@ jobs:
             ["phone_tap", {"text": "About"}],
             ["phone_assert", {"text": "About"}],
             ["phone_test_save", {"name": "Open About on iPhone", "path": "out/ios-settings-about.yaml"}],
+            ["phone_test_run", {"path": "out/ios-settings-about.yaml"}]
+          ]'
+
+      - name: Drive it again through agent-phone host, the path Windows and Linux use
+        timeout-minutes: 15
+        env:
+          AGENT_PHONE_MAC_COMMAND: node dist/cli.js host
+        run: |
+          node scripts/drive.mjs out/remote '[
+            ["phone_start", {"platform": "ios"}],
+            ["phone_tap", {"text": "General"}],
+            ["phone_look", {}],
             ["phone_test_run", {"path": "out/ios-settings-about.yaml"}]
           ]'
 
