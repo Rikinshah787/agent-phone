@@ -28,12 +28,12 @@ jobs:
         run: node dist/cli.js start --headless
 
       - name: Replay the example tests
-        run: node dist/cli.js test examples
+        run: node dist/cli.js test examples/android
 
       - name: Upload failure screenshots
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: failure-screenshots
-          path: examples/*.failure.png
+          path: examples/**/*.failure.png
           if-no-files-found: ignore

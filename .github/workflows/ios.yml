@@ -26,21 +26,6 @@ jobs:
         timeout-minutes: 20
         run: node dist/cli.js start --platform ios
 
-      - name: Find a way to press Home on a Face ID iPhone
-        timeout-minutes: 10
-        run: |
-          set +e
-          mkdir -p out/home
-          UDID=$(xcrun simctl list devices booted -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print([x['udid'] for v in d.values() for x in v][0])")
-          app() { axe describe-ui --udid "$UDID" 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); d=d[0] if isinstance(d,list) else d; print('front app:', d.get('AXLabel'))"; }
-          settings() { xcrun simctl launch "$UDID" com.apple.Preferences >/dev/null; sleep 4; }
-          axe gesture --help 2>&1 | head -30
-          settings; echo "--- A: gesture swipe-from-bottom-edge"; axe gesture swipe-from-bottom-edge --udid "$UDID"; echo "exit $?"; sleep 3; app; xcrun simctl io "$UDID" screenshot out/home/a.png
-          settings; echo "--- B: button home with a duration"; axe button home --duration 0.3 --udid "$UDID"; echo "exit $?"; sleep 3; app; xcrun simctl io "$UDID" screenshot out/home/b.png
-          settings; echo "--- C: Simulator menu shortcut via AppleScript"; osascript -e 'tell application "Simulator" to activate' -e 'delay 0.5' -e 'tell application "System Events" to keystroke "h" using {command down, shift down}'; echo "exit $?"; sleep 3; app; xcrun simctl io "$UDID" screenshot out/home/c.png
-          settings; echo "--- D: slow drag from the very bottom"; axe drag --start-x 201 --start-y 873 --end-x 201 --end-y 450 --duration 0.4 --steps 30 --udid "$UDID"; echo "exit $?"; sleep 3; app; xcrun simctl io "$UDID" screenshot out/home/d.png
-          exit 0
-
       - name: Look around, tap through Settings, go home
         timeout-minutes: 20
         run: |
@@ -51,8 +36,13 @@ jobs:
             ["phone_tap", {"text": "About"}],
             ["phone_look", {}],
             ["phone_key", {"key": "home"}],
+            ["phone_assert", {"text": "Safari"}],
             ["phone_look", {}]
           ]'
+
+      - name: Replay the example iPhone test with the CLI
+        timeout-minutes: 10
+        run: node dist/cli.js test examples/ios
 
       - name: Record a test on the iPhone, then replay it
         timeout-minutes: 20

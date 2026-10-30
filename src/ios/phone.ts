@@ -151,7 +151,7 @@ export class IosPhone extends PhoneBase {
     const key = name.toLowerCase();
     if (key === 'back') throw new Error("iPhones have no back button. Tap the app's own back button (usually top-left) or swipe from the left edge.");
     if (key === 'home') return this.goHome();
-    if (BUTTONS[key]) return void (await this.axe(['button', BUTTONS[key]]));
+    if (BUTTONS[key]) return void (await this.axe(['button', BUTTONS[key], '--duration', '0.3']));
     const code = HID_KEYS[key] ?? (/^\d+$/.test(name) ? Number(name) : undefined);
     if (code === undefined) {
       throw new Error(`"${name}" isn't available on an iPhone. Use one of: home, power, ${Object.keys(HID_KEYS).join(', ')}.`);
@@ -159,14 +159,9 @@ export class IosPhone extends PhoneBase {
     await this.axe(['key', String(code)]);
   }
 
-  /**
-   * Current iPhones have no home button: you swipe up from the bottom edge. AXe's
-   * `button home` is ignored on them, so do the gesture.
-   */
+  /** A quick press is ignored on Face ID iPhones; holding it for 0.3s goes home (tested on iOS 26). */
   private async goHome(): Promise<void> {
-    if (!this.screen) await this.ui();
-    const { w, h } = this.screen!;
-    await this.swipeDevice(w / 2, h - 2, w / 2, h * 0.45, 250);
+    await this.axe(['button', 'home', '--duration', '0.3']);
   }
 
   async swipeDevice(x1: number, y1: number, x2: number, y2: number, durationMs = 400): Promise<void> {
