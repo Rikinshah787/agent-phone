@@ -2,7 +2,7 @@ import path from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { KEY_NAMES } from './android/device.js';
+import { KEY_NAMES } from './phone/base.js';
 import { FlowRunner, type FlowResult } from './flow/runner.js';
 import { PROFILES } from './android/profiles.js';
 import { DEFAULT_ANDROID } from './config.js';
@@ -59,14 +59,17 @@ export async function runMcpServer(version: string): Promise<void> {
     {
       title: 'Start a phone',
       description:
-        `Boot an Android phone, installing anything missing first. Choose a device profile (${PROFILES.map((p) => p.id).join(', ')}), ` +
-        `or pass width/height/density to match any phone. Reuses the phone if it's already running.`,
+        'Boot a phone, installing anything missing first. Reuses it if it is already running. ' +
+        `Android (default): choose a profile (${PROFILES.map((p) => p.id).join(', ')}) or pass width/height/density to match any phone. ` +
+        'iPhone: set platform to "ios" and device to a model such as "iPhone 17 Pro" (iPhone simulators need macOS).',
       inputSchema: {
-        device: z.string().optional().describe(`Device profile. Default ${PROFILES[0].id}.`),
+        platform: z.enum(['android', 'ios']).optional().describe('Default android.'),
+        device: z.string().optional().describe(`Android profile (default ${PROFILES[0].id}) or iPhone model name.`),
         width: z.number().int().optional().describe('Custom screen width in pixels.'),
         height: z.number().int().optional().describe('Custom screen height in pixels.'),
         density: z.number().int().optional().describe('Custom screen density in dpi (e.g. 420).'),
         android: z.number().int().optional().describe(`Android API level. Default ${DEFAULT_ANDROID} (Android 15).`),
+        ios: z.string().optional().describe('iOS version, e.g. "26.5". Default: the newest installed.'),
         headless: z.boolean().optional().describe('Run without a window. Default false, so the user can watch.'),
         wipe: z.boolean().optional().describe('Factory-reset the phone before booting.'),
       },
@@ -82,13 +85,13 @@ export async function runMcpServer(version: string): Promise<void> {
             .catch(() => {});
         };
         const s = await phones.start({ ...args, onProgress });
-        return `${s.profile.name} (Android API ${s.api}) is running as ${s.device.serial}.\n\n${await s.device.observe(0)}`;
+        return `${s.description} is running as ${s.device.id}.\n\n${await s.device.observe(0)}`;
       }),
   );
 
   server.registerTool(
     'phone_stop',
-    { title: 'Shut down a phone', description: 'Shut down a running emulator.', inputSchema: { serial } },
+    { title: 'Shut down a phone', description: 'Shut down a running emulator or simulator.', inputSchema: { serial } },
     (args) => run(() => phones.stop(args.serial)),
   );
 
@@ -400,9 +403,7 @@ export async function runMcpServer(version: string): Promise<void> {
     (args) =>
       run(async () => {
         const d = await phones.get(args.serial);
-        const r = await phones.adb.shell(d.serial, args.command, 120_000);
-        const parts = [r.out.trim(), r.err && `stderr: ${r.err}`, r.code !== 0 && `exit code ${r.code}`].filter(Boolean);
-        return parts.join('\n') || '(no output)';
+        return d.shell(args.command);
       }),
   );
 

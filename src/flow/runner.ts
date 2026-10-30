@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
-import type { Device } from '../android/device.js';
-import type { UiNode } from '../android/ui.js';
+import type { PhoneBase } from '../phone/base.js';
+import type { UiNode } from '../phone/ui.js';
 import { sleep } from '../util/exec.js';
 import { asObject, describeSelector, matchSelector, type Selector } from './selectors.js';
 
@@ -23,18 +23,18 @@ export interface FlowResult {
 
 const LOOKUP_TIMEOUT_MS = 10_000;
 
-/** Maestro key names, as written in flows, mapped to Android key codes. */
-const KEYCODES: Record<string, string> = {
-  enter: 'KEYCODE_ENTER',
-  backspace: 'KEYCODE_DEL',
-  home: 'KEYCODE_HOME',
-  back: 'KEYCODE_BACK',
-  tab: 'KEYCODE_TAB',
-  lock: 'KEYCODE_POWER',
-  power: 'KEYCODE_POWER',
-  'volume up': 'KEYCODE_VOLUME_UP',
-  'volume down': 'KEYCODE_VOLUME_DOWN',
-  escape: 'KEYCODE_ESCAPE',
+/** Maestro key names, as written in flows, mapped to agent-phone's key names. */
+const KEYS: Record<string, string> = {
+  enter: 'enter',
+  backspace: 'backspace',
+  home: 'home',
+  back: 'back',
+  tab: 'tab',
+  lock: 'power',
+  power: 'power',
+  'volume up': 'volume_up',
+  'volume down': 'volume_down',
+  escape: 'escape',
 };
 
 class StepFailure extends Error {}
@@ -59,7 +59,7 @@ function parsePoint(spec: string, width: number, height: number): [number, numbe
  */
 export class FlowRunner {
   constructor(
-    private readonly device: Device,
+    private readonly device: PhoneBase,
     private readonly onStep?: (r: StepResult) => void,
   ) {}
 
@@ -170,13 +170,13 @@ export class FlowRunner {
         await d.erase(Number(value ?? 50));
         return `Erased ${Number(value ?? 50)} characters`;
       case 'pressKey': {
-        const code = KEYCODES[String(value).toLowerCase()];
-        if (!code) throw new StepFailure(`pressKey "${value}" is not supported by agent-phone yet.`);
-        await d.sh(`input keyevent ${code}`);
+        const key = KEYS[String(value).toLowerCase()];
+        if (!key) throw new StepFailure(`pressKey "${value}" is not supported by agent-phone yet.`);
+        await d.pressKey(key);
         return `Pressed ${value}`;
       }
       case 'back':
-        await d.sh('input keyevent KEYCODE_BACK');
+        await d.pressKey('back');
         return 'Pressed back';
       case 'hideKeyboard':
         return 'Keyboard is already hidden on agent-phone devices';

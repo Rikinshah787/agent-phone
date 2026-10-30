@@ -1,0 +1,52 @@
+name: iOS
+
+on:
+  push:
+    branches: [main, ios]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  iphone:
+    name: Boot an iPhone and drive it through MCP
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Boot an iPhone (installs AXe if missing)
+        run: node dist/cli.js start --platform ios
+
+      - name: Look around, tap through Settings, go home
+        run: |
+          node scripts/drive.mjs out '[
+            ["phone_list", {}],
+            ["phone_open", {"target": "settings"}],
+            ["phone_tap", {"text": "General"}],
+            ["phone_tap", {"text": "About"}],
+            ["phone_look", {}],
+            ["phone_key", {"key": "home"}],
+            ["phone_look", {}]
+          ]'
+
+      - name: Record a test on the iPhone, then replay it
+        run: |
+          node scripts/drive.mjs out '[
+            ["phone_test_start", {"app": "settings"}],
+            ["phone_tap", {"text": "General"}],
+            ["phone_tap", {"text": "About"}],
+            ["phone_assert", {"text": "About"}],
+            ["phone_test_save", {"name": "Open About on iPhone", "path": "out/ios-settings-about.yaml"}],
+            ["phone_test_run", {"path": "out/ios-settings-about.yaml"}]
+          ]'
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: iphone-run
+          path: out/

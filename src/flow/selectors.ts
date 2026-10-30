@@ -1,4 +1,4 @@
-import type { UiElement, UiNode, UiSnapshot } from '../android/ui.js';
+import type { UiElement, UiNode, UiSnapshot } from '../phone/ui.js';
 
 /** A Maestro selector: a text regex, or an object combining id, text, index or point. */
 export type Selector = string | SelectorObject;

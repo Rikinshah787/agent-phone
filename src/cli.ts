@@ -18,7 +18,9 @@ Usage
   agent-phone setup [--device pixel-8] [--android ${DEFAULT_ANDROID}] [--no-start]
                          Download what's needed and boot a phone
   agent-phone start [device] [--android N] [--headless] [--wipe]
-                         Boot a phone (device profile, default pixel-8)
+                         Boot an Android phone (device profile, default pixel-8)
+  agent-phone start --platform ios ["iPhone 17 Pro"] [--ios 26.5] [--headless]
+                         Boot an iPhone simulator (macOS only)
   agent-phone stop [serial]
   agent-phone list       Connected devices and device profiles
   agent-phone look [--out screen.png]
@@ -70,6 +72,8 @@ async function main(): Promise<void> {
       'no-start': { type: 'boolean' },
       out: { type: 'string' },
       serial: { type: 'string' },
+      platform: { type: 'string' },
+      ios: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
       version: { type: 'boolean', short: 'v' },
     },
@@ -94,13 +98,15 @@ async function main(): Promise<void> {
         return;
       }
       const s = await phones.start({
+        platform: values.platform === 'ios' || values.ios ? 'ios' : undefined,
+        ios: values.ios,
         device: values.device ?? positionals[1],
         android,
         headless: values.headless,
         wipe: values.wipe,
         onProgress: () => {}, // installer and emulator already log to stderr
       });
-      log(`\n${s.profile.name} (Android API ${s.api}) is running as ${s.device.serial}.`);
+      log(`\n${s.description} is running as ${s.device.id}.`);
       if (command === 'setup') log(`\n${connectHint()}`);
       return;
     }
